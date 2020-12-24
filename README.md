@@ -15,4 +15,7 @@ Sendo assim, o Emissor só irá enviar seus dados de GPS ao receber essa mensage
 entre o Receptor e os Emissores.
 Após o Receptor enviar a mensagem de solicitação de dados, ele irá aguardar 3 segundos pela mensagem do Emissor, contendo os dados do GPS. Ao serem recebidos, os dados
 são salvos em LOG no cartão SD e publicados via rede em  servidor MQTT para exbição na aplicação de monitoramento. Caso o Receptor não receba nenhuma mensagem como
-resposta, automaticamente irá solicitar ao próximo módulo, e assim até atingir o último módulo da fila, num ciclo contínuo. 
+resposta, automaticamente irá solicitar ao próximo módulo, e assim até atingir o último módulo da fila, num ciclo contínuo.
+
+Módulo Receptor Solicita por Grupos:
+Nesse método os módulos emissores são separados por grupos de 10, onde cada grupo recebe um Id. Esse id é utilizador pelo Receptor em terra para solicitar dados aos módulos pertencentes a cada grupo. Assim que cada emissor recebe o id do grupo em que está inserido, ele envia dados ao receptor num determinado tempo coordenado para evitar congestionamento de transmissões, haja visto que o receptor pode tratar apenas os dados recebidos de um emissor por vez.
