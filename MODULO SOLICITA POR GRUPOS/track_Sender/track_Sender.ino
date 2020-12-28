@@ -9,7 +9,7 @@
   
  */
 
- #include <TinyGPS.h>
+#include <TinyGPS.h>
 #include <EBYTE.h>
 #include <SoftwareSerial.h>
 
@@ -18,9 +18,13 @@
 #define LED8  A0                                  //LED de status POWER
 #define LED9  A1                                  //LED de status GPS
 
+char   idGrupo = 'B';                             //Define a qual grupo este módulo pertence
+char   infoReceptor [] = {0, 30, 5};              //Defiine o endereço e o canal do módulo receptor - addressH, addressL, channel / addressH e addressL se definidos ambos como 255, envia mensagem para todos módulos do canal simultaneamente(broadcast)
+String idModulo = "01";                           //Define o id deste módulo em0issor. Define o id do módulo emissor contido na mensagem enviada para o receptor em terra - Definir um Id diferente para cada módulo sempre no formato de dois dígitos Ex.: 01,02,10
+byte   canalModulo = 5;                           //Define o canal em que este módulo irá operar. Deve ser o mesmo canal que o receptor
+
 byte   dados2 [49];                               //Armazena os valores em bytes da String dados, que contém a informação do GPS
-char   idGrupo    = 'B';                          //Define a qual grupo este módulo pertence
-String idModulo   = "02";                         //Define o id do módulo emissor (ou id da equipe). Define o id do módulo emissor contido na mensagem enviada para o receptor em terra - Definir um Id diferente para cada módulo sempre no formato de dois dígitos Ex.: 01,02,10
+
 String tensaoBat;                                 //Usado na função tensaoBat. Variável que armazena o valor da tensão da bateria
 
 SoftwareSerial serialLORA(9,6);            //Rx - Tx (LORA)
@@ -28,7 +32,6 @@ SoftwareSerial serialGPS(11,12);           //Rx - Tx (GPS)
 
 EBYTE emissor(&serialLORA, 7, 8, 10);      //Parâmetros do módulo LORA (RX,TX,M0,M1,AUX)
 TinyGPS gps;                               //Objeto TinyGPS
-
 void iniciarLORA (){
      int addressL = idModulo.toInt();                          //Utiliza o valor definido na String idModulo para atribuir o endereçoL do modulo nas configurações da placa LORA (função iniciarLORA)
     
@@ -37,11 +40,11 @@ void iniciarLORA (){
      emissor.init();                                            //Inicia o módulo
 
      emissor.SetMode(MODE_NORMAL);                              //Modo de funcionamento do módulo
-     emissor.SetAddressH(0);                                    //Endereço H. Pode Variar entre 0 e 254 (Preferível não alterar)
+     emissor.SetAddressH(0);                                    //Endereço H. Pode Variar entre 0 e 254 (Preferível não alterar, a menos que a quantidade de módulos em funcionamento ultrapasse 255)
      emissor.SetAddressL(addressL);                             //Endereço L. Pode Variar entre 0 e 254 (A fins de facilitar, é automaticamente definido de acordo com o valor contido na variavel idModulo)
      emissor.SetAirDataRate(ADR_2400);                          //AirDataRate 2400kbps
      emissor.SetUARTBaudRate(UDR_9600);                         //BAUDRate 9600
-     emissor.SetChannel(5);                                     //Canal 5 (Pode variar de 0 até 32)
+     emissor.SetChannel(canalModulo);                           //Canal. Pode variar de 0 até 32
      emissor.SetParityBit(PB_8N1);                              //Bit Paridade 8N1
      //emissor.SetTransmitPower(OPT_TP30);                      //Força de transmissão 30db (Para módulos de 1W/8km)
      emissor.SetTransmitPower(OPT_TP20);                        //Força de transmissão 20db (Para módulos 100mW/3km)
@@ -91,8 +94,7 @@ String diaMes, horaMinSeg, dados, velocidade;
 
   do {                                                      //Fica em loop enquanto o modulo GPS não se conectar e receber valores
     while (serialGPS.available()) {                         
-      char cIn = serialGPS.read();
-      recebido = gps.encode(cIn);
+      recebido = gps.encode(serialGPS.read());
     }
   } while (!recebido);                                      //Caso o GPS conecte e tenha dados, prossegue
 
@@ -159,7 +161,7 @@ serialLORA.listen();
 int tempoEnvio = (idModulo.toInt())*1200;    //Define o tempo de envio de cada módulo, afim de sincronizar os envios e evitar o envio de dois ou mais módulos simultaneamente
 
 byte mensagem [] = {
-  0x00, 0x1E, 0x05,     //Canal e endereço módulo receptor - Endereço (0x00 0x1E{30 em decimal} / Canal (0x05)     
+  infoReceptor[0], infoReceptor [1], infoReceptor [2],     //Endereço e canal do módulo receptor
   dados2[0],dados2[1],dados2[2],dados2[3],dados2[4],dados2[5],dados2[6],dados2[7],dados2[8],dados2[9],
   dados2[10],dados2[11],dados2[12],dados2[13],dados2[14],dados2[15],dados2[16],dados2[17],dados2[18],dados2[19],
   dados2[20],dados2[21],dados2[22],dados2[23],dados2[24],dados2[25],dados2[26],dados2[27],dados2[28],dados2[29],
@@ -208,6 +210,6 @@ iniciarLORA();                          //Função que passa os parâmetros de f
  
 void loop() {             
 
-getGPS();                             //Obtém dados do modulo GPS
-//dadosFake();                        //Obtém dados simulados para fins de teste
+//getGPS();                             //Obtém dados do modulo GPS
+dadosFake();                        //Obtém dados simulados para fins de teste
 }
