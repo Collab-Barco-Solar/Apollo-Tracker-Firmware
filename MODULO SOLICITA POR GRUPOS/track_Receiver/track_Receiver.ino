@@ -8,9 +8,7 @@
   **50, 51, 52      (Arduino Mega)                        ** 12,3 -  Rx, Tx                  ** 6,5,2 - M0, M1, AUX                ** A0 - Status MQTT  
   **10, 11, 12, 13  (Arduino UNO)                                                                                                  ** A1 - Status SD
                                                                                                                                    ** A3 - Status Power 
-
 */
-
 
 #include <SPI.h>
 #include <Ethernet.h>
@@ -19,20 +17,22 @@
 #include <EBYTE.h>
 #include <SoftwareSerial.h>
 
+SdFat SD;
+File myFile;     //Objeto File
+
 byte mac[]    = { 0x00, 0xAA, 0xBB, 0xCC, 0xDE, 0x02 };       // Ethernet shield (W5100) MAC address
 byte ip[]     = { 192, 168, 1, 49  };                         // Ethernet shield (W5100) IP address
 byte server[] = { 192, 168, 1, 104 };                         // IP do servidor MQTT
 
-SdFat SD;
-File myFile;     //Objeto File
+//char gruposEquipes[] = {'A','B'};                 //Id dos grupos que estão na prova - Cada grupo deve conter preferencialmente 10 equipes (ou módulos)
+char  gruposEquipes[] = {'B'};                      //Id dos grupos que estão na prova - Cada grupo deve conter preferencialmente 10 equipes (ou módulos)
+char  idModulo       = 30;                          //Define o id deste receptor
+char  canalModulo    = 5;                           //Define o canal em que este módulo irá operar
+int   qtdEmissores   = 2;                           //Define a quantidade de emissores disponíveis, somando os emissores de todos os grupos 
 
-//char gruposEquipes[] = {'A','B'};              //Id dos grupos que estão na prova - Cada grupo deve conter preferencialmente 10 equipes (ou módulos)
-char gruposEquipes[] = {'B'};                    //Id dos grupos que estão na prova - Cada grupo deve conter preferencialmente 10 equipes (ou módulos)
-int qtdEmissor  = 3;                             //Define a quantidade de emissores disponíveis
-int qtdCharRcb  = 0;                             //Armazena quantos caracteres foram recebidos pelo módulo, vindos dos rastreadores
-int idReceptor  = 30;
 boolean newData = false;                         //Indica se novos dados foram recebidos
-String mensagem;                                 //Armazena a mensagem contendo todos os dados enviados de todos os emissores
+String  mensagem;                                //Armazena a mensagem contendo todos os dados enviados de todos os emissores
+int     qtdCharRcb  = 0;                         //Contador que armazena quantos caracteres foram recebidos pelo módulo, vindos dos rastreadores
 
 #define ARDUINO_CLIENT_ID "ARDUINO"              //ID do cliente para publicação no broker MQTT
 
@@ -43,21 +43,20 @@ String mensagem;                                 //Armazena a mensagem contendo 
 SoftwareSerial mySerial(12,3);                   //Software serial do módulo LORA (12-Rx - 3-Tx)
 EBYTE emissor(&mySerial, 6, 5, 2);               //Objeto Ebyte
 
+EthernetClient  ethClient;                       //Objeto EthernetClient
+PubSubClient    client(ethClient);               //Objeto PubSubClient
 
-EthernetClient  ethClient;                  //Objeto EthernetClient
-PubSubClient    client(ethClient);          //Objeto PubSubClient
-
-void iniciarLORA(){                         //Função que define os parâmetros de configuração do módulo LORA
+void iniciarLORA(){                              //Função que define os parâmetros de configuração do módulo LORA
      mySerial.listen();                   
        
      emissor.init();                                            //Inicia o módulo
 
      emissor.SetMode(MODE_NORMAL);                              //Modo de funcionamento do módulo
      emissor.SetAddressH(0);                                    //Endereço H. Pode Variar entre 0 e 254 (Preferível não alterar)
-     emissor.SetAddressL(idReceptor);                           //Endereço L. Pode Variar entre 0 e 254 
+     emissor.SetAddressL(idModulo);                             //Endereço L. Pode Variar entre 0 e 254 
      emissor.SetAirDataRate(ADR_2400);                          //AirDataRate 2400kbps
      emissor.SetUARTBaudRate(UDR_9600);                         //BAUDRate 9600
-     emissor.SetChannel(5);                                     //Canal de operação 
+     emissor.SetChannel(canalModulo);                           //Canal de operação 
      emissor.SetParityBit(PB_8N1);                              //Bit Paridade 8N1
      emissor.SetTransmitPower(OPT_TP30);                        //Força de transmissão 30db (Para módulos de 1W/8km)
      //emissor.SetTransmitPower(OPT_TP20);                      //Força de transmissão 20db (Para módulos 100mW/3km)
@@ -94,6 +93,7 @@ void salvar_SD(){                                    //Função que salva os dad
 
 void conectar_MQTT(){                                          //Função que conecta ao MQTT
   while (!client.connect(ARDUINO_CLIENT_ID)){                   
+    
     Serial.println("FALHA MQTT");
     digitalWrite(LED8, HIGH);
     client.connect(ARDUINO_CLIENT_ID);
@@ -103,8 +103,8 @@ void conectar_MQTT(){                                          //Função que co
 
 void receber() {
 
-  int tempoEspera = 1300 * qtdEmissor;                  //Define por quantos segundos o módulo vai aguardar por dados dos rastreadores (qtd de rastreadores * 1300 seg de espera por módulo)
-  const int numChars = 49 * qtdEmissor;                 //Limite máximo de caracteres a serem recebidos                                (qtd de rastreadores * tamanho da mensagem enviada 49 char)
+  int tempoEspera = 1300 * qtdEmissores;                //Define por quantos segundos o módulo vai aguardar por dados dos rastreadores (qtd de rastreadores * 1300ms de espera por módulo)
+  const int numChars = 49 * qtdEmissores;               //Limite máximo de caracteres a serem recebidos                                (qtd de rastreadores * tamanho da mensagem enviada (49 char))
   byte dados[numChars];                                 //Array de bytes que irá armazenar os dados fornecidos pelos rastreadores
   unsigned long pausa = millis() + tempoEspera;         //Adiciona os segundos de espera a função millis()
   static int ndx = 0;                                   //Indice que conta quantos caracteres foram recebidos
@@ -112,12 +112,13 @@ void receber() {
 
    
   while (pausa > millis()){
-    if (mySerial.available() > 0){  
+    
+    if (mySerial.available() > 0){
       rc = mySerial.read();
       dados[ndx] = rc;
       ndx++;
-    }
-    else if (ndx >= numChars) {            //Caso a quantidade de dados recebida atinja o limite
+      if (ndx >= numChars) {               //Caso a quantidade de dados recebida atinja o limite
+           
            dados[ndx] = '\0';              //Atribui o caracter "NULL" e com isso encerra o recebimento
            mensagem = (char*)dados;
            qtdCharRcb = ndx;               //Atribui a quantidade de caracteres recebidos para uso na função publicar
@@ -125,10 +126,12 @@ void receber() {
            newData = true;                 //Define newData como true indicando que há novos dados recebidos
            publicar();                     //Chama a função publicar para enviar os dados via MQTT e salvar no cartão SD
            break;                          //Força o encerramento da função receber
-        }
+      }
+    }
   }
   if (ndx > 0) {              //Caso o tempo limite de recebimento se esgote e não seja preenchido o buffer
-    dados[ndx] = '\0';     //Atribui o caracter "NULL" e com isso encerra o recebimento
+    
+    dados[ndx] = '\0';        //Atribui o caracter "NULL" e com isso encerra o recebimento
     mensagem = (char*)dados;
     qtdCharRcb = ndx;         //Atribui a quantidade de caracteres recebidos para uso na função publicar
     ndx = 0;                  //Define o indice novamente para 0
@@ -147,7 +150,7 @@ void solicitar(){                                                     //Função
     iniciar_SD();                                                     //A cada iteração do loop verifica se o módulo SD está ativo
     digitalWrite(LED9, LOW);
    
-    byte solicitacao[] = {0xFF, 0xFF, 0x05, gruposEquipes[a]};       //Solicita dados a todos os módulos (0xFF 0xFF) operando no canal 5 (0x05) que estejam no grupo chamado
+    byte solicitacao[] = {0xFF, 0xFF, canalModulo, gruposEquipes[a]};       //Solicita dados a todos os módulos (0xFF 0xFF) operando no canal 5 (0x05) que estejam no grupo chamado
     mySerial.write(solicitacao,sizeof(solicitacao));
     receber();                                                       //Função que recebe dados dos rastreadores   
   }
@@ -155,7 +158,8 @@ void solicitar(){                                                     //Função
 
 void publicar(){                                               //Função que publica os dados recebidos no MQTT e salva no cartão SD
 
-  if (newData == true) {                                       //Caso tenha dados recebidos 
+  if (newData == true) {                                       //Caso tenha dados recebidos
+     
     newData = false;                                           //Define dados recebidos como falso
     String topico_str = "/app1/dados/equipe00";                //Cria o endereço do tópico MQTT onde serão publicados os dados Ex:. /app/dados/equipe07 ou /app/dados/equipe10
     char topico_char[21];                                      //Vetor que irá armazenar o endereço do tópico em formato char
@@ -199,7 +203,6 @@ void setup(){
   iniciar_SD();                                    //Inicia o módulo SD
   Serial.println("SD OK"); 
   digitalWrite(LED9, LOW);
-
   Ethernet.init(10);
   Ethernet.begin(mac, ip);                         //Inicia o Ethernet shield
   client.setServer(server, 1883);                  //Inicia e define IP e porta do servidor MQTT
@@ -209,5 +212,6 @@ void setup(){
 } //Fim Setup()
 
 void loop() {
+  
   solicitar();  //Solicita dados aos módulos transmissores
 }   //Fim loop
